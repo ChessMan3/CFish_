@@ -51,6 +51,10 @@ Depth TB_ProbeDepth;
 #define NonPV 0
 #define PV    1
 
+// Sizes and phases of the skip-blocks, used for distributing search depths across the threads
+const int skipSize[]  = { 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4 };
+const int skipPhase[] = { 0, 1, 0, 1, 2, 3, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 6, 7 };
+
 // Razoring and futility margin based on depth
 // razor_margin[0] is unused as long as depth >= ONE_PLY in search
 static const int razor_margin[4] = { 0, 570, 603, 554 };
@@ -121,38 +125,6 @@ static void easy_move_update(Pos *pos, Move *newPv)
 
 // Set of rows with half bits set to 1 and half to 0. It is used to allocate
 // the search depths across the threads.
-
-#define HalfDensitySize 20
-
-static const int HalfDensity[HalfDensitySize][8] = {
-  {0, 1},
-  {1, 0},
-  {0, 0, 1, 1},
-  {0, 1, 1, 0},
-  {1, 1, 0, 0},
-  {1, 0, 0, 1},
-  {0, 0, 0, 1, 1, 1},
-  {0, 0, 1, 1, 1, 0},
-  {0, 1, 1, 1, 0, 0},
-  {1, 1, 1, 0, 0, 0},
-  {1, 1, 0, 0, 0, 1},
-  {1, 0, 0, 0, 1, 1},
-  {0, 0, 0, 0, 1, 1, 1, 1},
-  {0, 0, 0, 1, 1, 1, 1, 0},
-  {0, 0, 1, 1, 1, 1, 0 ,0},
-  {0, 1, 1, 1, 1, 0, 0 ,0},
-  {1, 1, 1, 1, 0, 0, 0 ,0},
-  {1, 1, 1, 0, 0, 0, 0 ,1},
-  {1, 1, 0, 0, 0, 0, 1 ,1},
-  {1, 0, 0, 0, 0, 1, 1 ,1},
-};
-
-static const int HalfDensityRowSize[HalfDensitySize] = {
-  2, 2,
-  4, 4, 4, 4,
-  6, 6, 6, 6, 6, 6,
-  8, 8, 8, 8, 8, 8, 8, 8
-};
 
 static Value DrawValue[2];
 //static CounterMoveHistoryStats CounterMoveHistory;
@@ -356,11 +328,10 @@ void mainthread_search(void)
   IO_UNLOCK;
 }
 
-
-// thread_search() is the main iterative deepening loop. It calls search()
-// repeatedly with increasing depth until the allocated thinking time has
-// been consumed, the user stops the search, or the maximum search depth is
-// reached.
+/// thread_search() is the main iterative deepening loop. It calls search()
+/// repeatedly with increasing depth until the allocated thinking time has
+/// been consumed, the user stops the search, or the maximum search depth is
+/// reached.
 
 void thread_search(Pos *pos)
 {
@@ -402,21 +373,18 @@ void thread_search(Pos *pos)
   RootMoves *rm = pos->rootMoves;
   multiPV = min(multiPV, rm->size);
 
-  // Iterative deepening loop until requested to stop or the target depth
-  // is reached.
+  // Iterative deepening loop until requested to stop or the target depth is reached.
   while (   (pos->rootDepth += ONE_PLY) < DEPTH_MAX
          && !Signals.stop
          && (!Limits.depth || threads_main()->rootDepth <= Limits.depth))
   {
-    // Set up the new depths for the helper threads skipping on average every
-    // 2nd ply (using a half-density matrix).
-    if (pos->thread_idx != 0) {
-      int row = (pos->thread_idx - 1) % HalfDensitySize;
-      int col = (pos->rootDepth / ONE_PLY + pos_game_ply())
-                                               % HalfDensityRowSize[row];
-      if (HalfDensity[row][col])
-        continue;
-    }
+	  // Distribute search depths across the threads
+       if (pos->thread_idx)
+       {
+           int i = (pos->thread_idx - 1) % 20;
+           if (((pos->rootDepth / ONE_PLY + pos_game_ply() + skipPhase[i]) / skipSize[i]) % 2)
+               continue;
+       }
 
     // Age out PV variability metric
     if (pos->thread_idx == 0) {
