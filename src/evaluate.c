@@ -73,19 +73,17 @@ typedef struct EvalInfo EvalInfo;
 #define V(v) (Value)(v)
 #define S(mg,eg) make_score(mg,eg)
 
-// MobilityBonus[PieceType][attacked] contains bonuses for middle and
-// end game, indexed by piece type and number of attacked squares in the
-// MobilityArea.
+// MobilityBonus[PieceType-2][attacked] contains bonuses for middle and end game,
+// indexed by piece type and number of attacked squares in the mobility area.
 static const Score MobilityBonus[][32] = {
-  {0}, {0},
   { S(-75,-76), S(-57,-54), S( -9,-28), S( -2,-10), S(  6,  5), S( 14, 12), // Knights
     S( 22, 26), S( 29, 29), S( 36, 29) },
   { S(-48,-59), S(-20,-23), S( 16, -3), S( 26, 13), S( 38, 24), S( 51, 42), // Bishops
     S( 55, 54), S( 63, 57), S( 63, 65), S( 68, 73), S( 81, 78), S( 81, 86),
     S( 91, 88), S( 98, 97) },
-  { S(-60,-77), S(-26,-20), S(-11, 27), S( -6, 57), S( -3, 69), S( -1, 82), // Rooks
-    S( 10,109), S( 16,121), S( 24,131), S( 25,143), S( 32,155), S( 32,163),
-    S( 43,167), S( 48,171), S( 56,173) },
+  { S(-58,-76), S(-27,-18), S(-15, 28), S(-10, 55), S( -5, 69), S( -2, 82), // Rooks
+    S(  9,112), S( 16,118), S( 30,132), S( 29,142), S( 32,155), S( 38,165),
+    S( 46,166), S( 48,169), S( 58,171) },
   { S(-39,-36), S(-21,-15), S(  3,  8), S(  3, 18), S( 14, 34), S( 22, 54), // Queens
     S( 28, 61), S( 41, 73), S( 43, 79), S( 48, 92), S( 56, 94), S( 60,104),
     S( 60,113), S( 66,120), S( 67,123), S( 70,126), S( 71,133), S( 73,136),
@@ -104,7 +102,7 @@ static const Score Outpost[][2] = {
 
 // RookOnFile[semiopen/open] contains bonuses for each rook when there is
 // no friendly pawn on the rook file.
-static const Score RookOnFile[2] = { S(20, 7), S(45, 20) };
+static const Score RookOnFile[] = { S(20, 7), S(45, 20) };
 
 // ThreatByMinor/ByRook[attacked PieceType] contains bonuses according to
 // which piece type attacks which one. Attacks on lesser pieces which are
@@ -119,7 +117,7 @@ static const Score ThreatByRook[8] = {
 
 // ThreatByKing[on one/on many] contains bonuses for King attacks on
 // pawns or pieces which are not pawn-defended.
-static const Score ThreatByKing[2] = { S(3, 62), S(9, 138) };
+static const Score ThreatByKing[] = { S(3, 62), S(9, 138) };
 
 // Passed[mg/eg][Rank] contains midgame and endgame bonuses for passed pawns.
 // We don't use a Score because we process the two components independently.
@@ -134,15 +132,8 @@ static const Score PassedFile[8] = {
   S(-20,-12), S( 1, -8), S( 2, 10), S(  9, 10)
 };
 
-// Protector[PieceType][distance] contains a protecting bonus for our king, 
-// indexed by piece type and distance between the piece and the king.
-static const Score Protector[8][8] = {
-{0}, {0},
-   { S(0, 0), S( 7, 9), S( 7, 1), S( 1, 5), S(-10,-4), S( -1,-4), S( -7,-3), S(-16,-10) }, // Knight
-   { S(0, 0), S(11, 8), S(-7,-1), S(-1,-2), S( -1,-7), S(-11,-3), S( -9,-1), S(-16, -1) }, // Bishop
-   { S(0, 0), S(10, 0), S(-2, 2), S(-5, 4), S( -6, 2), S(-14,-3), S( -2,-9), S(-12, -7) }, // Rook
-   { S(0, 0), S( 3,-5), S( 2,-5), S(-4, 0), S( -9,-6),  S(-4, 7), S(-13,-7), S(-10, -7) }  // Queen
-   };
+// KingProtector[PieceType-2] * "distance to own king" determines a bonus for each piece.
+const Score KingProtector[] = {S(-3, -5), S(-4, -3), S(-3, 0), S(-1, 1) };
  
 // Assorted bonuses and penalties used by evaluation
 static const Score MinorBehindPawn     = S(16,  0);
@@ -172,14 +163,15 @@ static const Score TrappedBishopA1H1 = S(50, 50);
 static const int KingAttackWeights[8] = { 0, 0, 78, 56, 45, 11 };
 
 // Penalties for enemy's safe checks
-#define QueenCheck        810
-#define RookCheck         888
-#define BishopCheck       400
+#define QueenCheck        780
+#define RookCheck         880
+#define BishopCheck       435
 #define KnightCheck       790
 
 
-// Threshold for lazy evaluation
+// Threshold for lazy and space evaluation
 const Value LazyThreshold = (1500);
+const Value SpaceThreshold =(12222);
 
 // eval_init() initializes king and attack bitboards for a given color
 // adding pawn attacks. To be done at the beginning of the evaluation.
@@ -241,10 +233,9 @@ INLINE Score evaluate_piece(const Pos *pos, EvalInfo *ei, Score *mobility,
     
     int mob = popcount(b & mobilityArea[Us]);
 
-    mobility[Us] += MobilityBonus[Pt][mob];
+    mobility[Us] += MobilityBonus[Pt-2][mob];
     
-    // Bonus for this piece as a king protector
-       score += Protector[Pt][distance(s, square_of(Us, KING))];
+       score += KingProtector[Pt-2] * distance(s, square_of(Us, KING));
      
     if (Pt == BISHOP || Pt == KNIGHT) {
       // Bonus for outpost squares
@@ -372,12 +363,12 @@ INLINE Score evaluate_king(const Pos *pos, EvalInfo *ei, int Us)
     // number and types of the enemy's attacking pieces, the number of
     // attacked and undefended squares around our king and the quality of
     // the pawn shelter (current 'score' value).
-    kingDanger =  ei->kingAttackersCount[Them] * ei->kingAttackersWeight[Them]
-                + 103 * ei->kingAdjacentZoneAttacksCount[Them]
-                + 190 * popcount(undefended)
-                + 142 * (popcount(b) + !!pinned_pieces(pos, Us))
-                - 810 * !pieces_cp(Them, QUEEN)
-                -   6 * mg_value(score) / 5 - 5;
+    kingDanger =        ei->kingAttackersCount[Them] * ei->kingAttackersWeight[Them]
+                + 102 * ei->kingAdjacentZoneAttacksCount[Them]
+                + 201 * popcount(undefended)
+                + 143 * (popcount(b) + !!pinned_pieces(pos, Us))
+                - 848 * !pieces_cp(Them, QUEEN)
+                -  28 * mg_value(score) / 25 - 5;
 
     // Analyse the safe enemy's checks which are possible on next move...
     safe  = ~pieces_c(Them);
@@ -476,11 +467,11 @@ INLINE Score evaluate_threats(const Pos *pos, EvalInfo *ei, const int Us)
                                | ei->attackedBy[Us][0]);
 
     safeThreats = (shift_bb(Right, b) | shift_bb(Left, b)) & weak;
+	
+	score += ThreatBySafePawn * popcount(safeThreats);
 
     if (weak ^ safeThreats)
       score += ThreatByHangingPawn;
-
-    score += ThreatBySafePawn * popcount(safeThreats);
   }
 
   // Squares strongly protected by the opponent, either because they attack the
@@ -787,7 +778,7 @@ Value evaluate(const Pos *pos)
           - evaluate_passer_pawns(pos, &ei, BLACK);
 
   // Evaluate space for both sides, only during opening
-  if (pos_non_pawn_material(WHITE) + pos_non_pawn_material(BLACK) >= 12222)
+  if (pos_non_pawn_material(WHITE) + pos_non_pawn_material(BLACK) >= SpaceThreshold)
       score +=  evaluate_space(pos, &ei, WHITE)
               - evaluate_space(pos, &ei, BLACK);
 
