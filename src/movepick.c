@@ -23,19 +23,20 @@
 #include "movepick.h"
 #include "thread.h"
 
-#define HistoryStats_Max ((int)(1<<28))
+#define HistoryStats_Max ((Value)(1<<28))
 
 // partial_insertion_sort() sorts moves in descending order up to and including
 // a given limit. The order of moves smaller than the limit is left unspecified.
 
-INLINE void partial_insertion_sort(ExtMove *begin, ExtMove *end, int limit){
-    for (ExtMove *sortedEnd = begin, *p = begin + 1; p < end; p++) 
-		if (p->value >= limit)
+INLINE void partial_insertion_sort(ExtMove *begin, ExtMove *end, Value limit){
+
+  for (ExtMove *sortedEnd = begin, *p = begin + 1; p < end; p++) 
+       if (p->value >= limit)
   {
     ExtMove tmp = *p, *q;
 	*p = *++sortedEnd;
-    for (q = sortedEnd; q != begin && (q-1)->value < tmp.value; --q)
-      *q = *(q-1);
+    for (q = sortedEnd; q != begin && (q - 1)->value < tmp.value; --q)
+    *q = *(q - 1);
     *q = tmp;
   }
 }
@@ -141,13 +142,13 @@ static void score_evasions(const Pos *pos)
       m->value =  PieceValue[MG][piece_on(to_sq(m->move))]
                 - (Value)type_of_p(moved_piece(m->move)) + HistoryStats_Max;
     else
-      m->value =  hs_get(*history, c, m->move);
+       m->value =  hs_get(*history, c, m->move);
 }
 
 
 // next_move() returns the next pseudo-legal move to be searched.
 
-Move next_move(const Pos *pos)
+Move next_move(const Pos *pos, int skipQuiets)
 {
   Stack *st = pos->st;
   Move move;
@@ -213,12 +214,14 @@ Move next_move(const Pos *pos)
 	/* fallthrough */
 
   case ST_QUIET:
-    while (st->cur < st->endMoves) {
-      move = (st->cur++)->move;
-      if (   move != st->ttMove && move != st->killers[0]
-          && move != st->killers[1] && move != st->countermove)
-        return move;
-    }
+    while (    st->cur < st->endMoves 
+ 	       && (!skipQuiets || st->cur->value >= VALUE_ZERO))
+ 	{ 
+ 	 move = (st->cur++)->move;
+ 	 if (   move != st->ttMove && move != st->killers[0]
+         && move != st->killers[1]  && move != st->countermove)
+          return move;
+ 	}
     st->stage++;
     st->cur = (st-1)->endMoves; // Point to beginning of bad captures
 	/* fallthrough */
@@ -241,7 +244,6 @@ Move next_move(const Pos *pos)
       score_captures(pos);
       st->stage++;
     }
-
 
   case ST_QCAPTURES_CHECKS: case ST_REMAINING:
     while (st->cur < st->endMoves) {

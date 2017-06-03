@@ -85,7 +85,7 @@ struct Stack {
   Move excludedMove;
   Move killers[2];
   Value staticEval;
-  int history;
+  Value history;
   int moveCount;
 
   // MovePicker data
@@ -155,8 +155,8 @@ struct Pos {
   Depth completedDepth;
 
   // Pointers to thread-specific tables.
-  MoveStats *counterMoves;
   HistoryStats *history;
+  MoveStats *counterMoves;
   PawnEntry *pawnTable;
   MaterialEntry *materialTable;
   CounterMoveHistoryStats *counterMoveHistory;
